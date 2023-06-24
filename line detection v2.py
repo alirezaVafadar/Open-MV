@@ -1,8 +1,13 @@
 import sensor, image, time, math
-from pyb import I2C
+import pyb,ustruct
+
 
 # Initialize I2C communication as slave
-i2c = I2C(2, I2C.SLAVE, addr=0x42)
+# Note: The I2C hardware bus on OpenMV Cam is bus 2.
+bus = pyb.I2C(2, pyb.I2C.SLAVE, addr=0x12)
+bus.deinit()  # Completely shut down the device
+bus = pyb.I2C(2, pyb.I2C.SLAVE, addr=0x12)
+print("Waiting for Arduino...")
 
 # Set up camera
 sensor.reset()
@@ -69,6 +74,10 @@ while(True):
     if center_line:
         line_position_error = img.width()//2 - center_line[0]
         pid_output = pid_control(line_position_error)
+        servo_position = 90 + pid_output * 0.5
+        print("servo_position : ", servo_position)
+        servo_position=str(servo_position)
+        servo_position = ustruct.pack("<%ds" % len(servo_position), servo_position)
 
     # Draw lines
     if left_line: img.draw_line(left_line.line(), color=(0,0,255)) # Blue line for left line
@@ -76,4 +85,16 @@ while(True):
     if center_line: img.draw_cross(center_line[0], center_line[1], color=(0,255,0)) # Green cross for center line
 
     # Send PID output via I2C
-    #i2c.send('{:6.2f}'.format(pid_output), timeout=1000)
+    try:
+        bus.send(ustruct.pack("<h", len(servo_position)), timeout=10000)  # Send the length (16-bits) first
+        try:
+            bus.send(servo_position, timeout=10000)  # Then send the data
+            print("Sent Data!")  # Displayed when no errors occur
+        except OSError as err:
+            pass  # Skip if an error occurs
+            # Note that there are 3 possible errors: timeout error, general purpose error, or busy error.
+            # The error codes for "err.arg[0]" are 116, 5, and 16 respectively.
+    except OSError as err:
+        pass  # Skip if an error occurs
+        # Note that there are 3 possible errors: timeout error, general purpose error, or busy error.
+        # The error codes for "err.arg[0]" are 116, 5, and 16 respectively.
