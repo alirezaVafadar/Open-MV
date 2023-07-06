@@ -49,6 +49,7 @@ while(True):
     left_line = None
     right_line = None
     center_line = None
+    intersection = False
 
     # Get image frame
     img = sensor.snapshot()
@@ -63,7 +64,11 @@ while(True):
                 left_line = l
             if not right_line or l.x2() > right_line.x2():
                 right_line = l
-
+    lines = img.find_lines(roi=(0, int(ROI_TOP*img.height()), img.width(), int(ROI_BOTTOM*img.height())), merge_distance = 30)
+    # If we detect more than 3 lines, we consider it an intersection
+    if len(lines) > 4:
+        print("Intersection detected!")
+        intersection = False
     # Detect center line as midpoint of left and right line
     if left_line and right_line:
         center_x = (left_line.x1() + right_line.x1()) // 2
@@ -74,27 +79,40 @@ while(True):
     if center_line:
         line_position_error = img.width()//2 - center_line[0]
         pid_output = pid_control(line_position_error)
-        servo_position = 90 + pid_output * 0.5
+        servo_position = 90 - pid_output
         print("servo_position : ", servo_position)
         servo_position=str(servo_position)
         servo_position = ustruct.pack("<%ds" % len(servo_position), servo_position)
 
     # Draw lines
-    if left_line: img.draw_line(left_line.line(), color=(0,0,255)) # Blue line for left line
-    if right_line: img.draw_line(right_line.line(), color=(255,0,0)) # Red line for right line
+    for l in lines:
+        if intersection:
+            img.draw_line(l.line(), color=(255,255,0)) # Highlight lines that form the intersection
+        else:
+            img.draw_line(l.line(), color=(0,0,255)) # Normal line color when no intersection
+
     if center_line: img.draw_cross(center_line[0], center_line[1], color=(0,255,0)) # Green cross for center line
 
-    # Send PID output via I2C
-    try:
-        bus.send(ustruct.pack("<h", len(servo_position)), timeout=10000)  # Send the length (16-bits) first
+    # Send output via I2C
+    if intersection:
+        crosswalk ="intersection"
+        crosswalk = ustruct.pack("<%ds" % len(crosswalk), crosswalk)
         try:
-            bus.send(servo_position, timeout=10000)  # Then send the data
-            print("Sent Data!")  # Displayed when no errors occur
+            bus.send(ustruct.pack("<h", len(crosswalk)), timeout=10000)  # Send the length (16-bits) first
+            try:
+                bus.send(crosswalk, timeout=10000)  # Then send the data
+                print("Sent Data!")  # Displayed when no errors occur
+            except OSError as err:
+                pass  # Skip if an error occurs
         except OSError as err:
             pass  # Skip if an error occurs
-            # Note that there are 3 possible errors: timeout error, general purpose error, or busy error.
-            # The error codes for "err.arg[0]" are 116, 5, and 16 respectively.
-    except OSError as err:
-        pass  # Skip if an error occurs
-        # Note that there are 3 possible errors: timeout error, general purpose error, or busy error.
-        # The error codes for "err.arg[0]" are 116, 5, and 16 respectively.
+    if not intersection:  # Do not send servo position if we're at an intersection
+        try:
+            bus.send(ustruct.pack("<h", len(servo_position)), timeout=10000)  # Send the length (16-bits) first
+            try:
+                bus.send(servo_position, timeout=10000)  # Then send the data
+                print("Sent Data!")  # Displayed when no errors occur
+            except OSError as err:
+                pass  # Skip if an error occurs
+        except OSError as err:
+            pass  # Skip if an error occurs
