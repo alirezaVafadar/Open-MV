@@ -44,13 +44,13 @@ while(True):
     if BINARY_VIEW:
         img.binary([GRAYSCALE_THRESHOLD])
         img.erode(1)
+    line = img.get_regression([(255,255) if BINARY_VIEW else THRESHOLD])
+
+    if (line): img.draw_line(line.line(), color = 127)
+    print("FPS %f, mag = %s" % (clock.fps(), str(line.magnitude()) if (line) else "N/A"))
 
 
     # Apply color inversion (optional: uncomment if needed)
     img.invert()
 
     time.sleep(0.1)  # add delay for stability
-
-
-
-
